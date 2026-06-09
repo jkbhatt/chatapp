@@ -25,10 +25,10 @@ app.set("trust proxy", 1);
 
 const httpServer = createServer(app);
 
-const allowedOrigins = [
-  process.env.CLIENT_URL,
+const allowedOrigins: string[] = [
+  process.env.CLIENT_URL || "",
   "http://localhost:3000",
-].filter(Boolean);
+].filter((origin): origin is string => Boolean(origin));
 
 const io = new Server(httpServer, {
   cors: {
