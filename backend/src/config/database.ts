@@ -1,21 +1,22 @@
-import dns from "dns";
 import mongoose from "mongoose";
-
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const connectDB = async (): Promise<void> => {
   try {
     const mongoURI = process.env.MONGODB_URI;
 
     if (!mongoURI) {
-      throw new Error("MONGODB_URI is not defined");
+      throw new Error("MONGODB_URI is missing");
     }
 
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, {
+      maxPoolSize: 10,
+    });
 
-    console.log("✅ MongoDB Connected Successfully!");
+    console.log("✅ MongoDB Connected");
   } catch (error) {
-    console.error("❌ MongoDB connection error:", error);
+    console.error("❌ MongoDB Connection Failed");
+    console.error(error);
+
     process.exit(1);
   }
 };
