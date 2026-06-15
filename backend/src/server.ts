@@ -42,6 +42,7 @@ const io = new Server(httpServer, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  maxHttpBufferSize: 1e8, // 100MB
 });
 
 // ============================================================
@@ -60,8 +61,14 @@ app.use(cors({
 // GENERAL MIDDLEWARE
 // ============================================================
 app.use(logger);
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Increased payload limits for image uploads
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({
+  extended: true,
+  limit: "50mb",
+}));
+
 app.use("/api", generalLimiter);
 
 // ============================================================
