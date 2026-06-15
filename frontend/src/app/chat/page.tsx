@@ -114,23 +114,77 @@ export default function ChatPage() {
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedUser) return;
-    if (!file.type.startsWith("image/")) { toast.error("Please select an image file"); return; }
-    if (file.size > 2 * 1024 * 1024) { toast.error("Image must be less than 2MB"); return; }
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // Allow up to 10MB
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > 10) {
+      toast.error(`Image too large (${sizeMB.toFixed(1)}MB). Max 10MB allowed.`);
+      return;
+    }
+
     setIsUploading(true);
+
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      let base64: string;
+
+      if (sizeMB > 1) {
+        // Show compression toast
+        toast(`🗜️ Compressing image...`, { duration: 2000 });
+
+        // Compress image using canvas
+        base64 = await new Promise<string>((resolve, reject) => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          const img = new Image();
+
+          img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+            const maxSize = 1280;
+
+            if (width > maxSize) {
+              height = Math.round((height * maxSize) / width);
+              width = maxSize;
+            }
+            if (height > maxSize) {
+              width = Math.round((width * maxSize) / height);
+              height = maxSize;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            ctx?.drawImage(img, 0, 0, width, height);
+
+            resolve(canvas.toDataURL("image/jpeg", 0.75));
+          };
+
+          img.onerror = reject;
+          img.src = URL.createObjectURL(file);
+        });
+      } else {
+        // Small image — use directly
+        base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
       await sendMessage(base64, "image");
       toast.success("Image sent! 📸");
-    } catch { toast.error("Failed to send image"); }
-    finally {
+    } catch {
+      toast.error("Failed to send image. Try again.");
+    } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
