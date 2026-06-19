@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Search, X, MessageCircle } from "lucide-react";
-import axiosInstance from "@/lib/axios";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 interface Message {
   _id: string;
   content: string;
+  type: string;
   createdAt: string;
   sender: {
     _id: string;
@@ -34,28 +36,40 @@ export default function SearchMessages({
   const [allMessages, setAllMessages] = useState<Message[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // ── Load messages for this conversation ───────────────────
+  // FIX: replaced axiosInstance with plain fetch
   useEffect(() => {
-    // Load all messages for searching
     const loadMessages = async () => {
       try {
-        const response = await axiosInstance.get(`/messages/${selectedUserId}`);
-        setAllMessages(response.data.messages || []);
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/messages/${selectedUserId}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const data = await res.json();
+        // FIX: only store text messages — images can't be searched by content
+        const textOnly = (data.messages || []).filter(
+          (m: Message) => m.type !== "image"
+        );
+        setAllMessages(textOnly);
       } catch (error) {
-        console.error("Failed to load messages for search");
+        console.error("Failed to load messages for search:", error);
       }
     };
+
     loadMessages();
     inputRef.current?.focus();
   }, [selectedUserId]);
 
+  // ── Filter messages locally as user types ─────────────────
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
       return;
     }
-
     setIsLoading(true);
-    // Search locally through messages
     const filtered = allMessages.filter((msg) =>
       msg.content.toLowerCase().includes(query.toLowerCase())
     );
@@ -72,6 +86,7 @@ export default function SearchMessages({
     } catch { return ""; }
   };
 
+  // ── Highlight matching text ───────────────────────────────
   const highlightText = (text: string, highlight: string) => {
     if (!highlight.trim()) return text;
     const parts = text.split(new RegExp(`(${highlight})`, "gi"));
@@ -79,9 +94,10 @@ export default function SearchMessages({
       part.toLowerCase() === highlight.toLowerCase() ? (
         <mark key={i} style={{
           background: "rgba(124,58,237,0.4)",
-          color: "#fff", borderRadius: "3px",
-          padding: "0 2px",
-        }}>{part}</mark>
+          color: "#fff", borderRadius: "3px", padding: "0 2px",
+        }}>
+          {part}
+        </mark>
       ) : part
     );
   };
@@ -92,6 +108,7 @@ export default function SearchMessages({
       background: "#0a0a0f", zIndex: 100,
       display: "flex", flexDirection: "column",
     }}>
+
       {/* Header */}
       <div style={{
         padding: "14px 20px",
@@ -114,8 +131,7 @@ export default function SearchMessages({
               background: "rgba(255,255,255,0.06)",
               border: "1px solid rgba(255,255,255,0.1)",
               borderRadius: "12px", color: "#fff",
-              fontSize: "14px", outline: "none",
-              boxSizing: "border-box",
+              fontSize: "14px", outline: "none", boxSizing: "border-box",
             }}
             onFocus={(e) => {
               e.target.style.borderColor = "#7c3aed";
@@ -179,10 +195,8 @@ export default function SearchMessages({
                   key={msg._id}
                   onClick={() => onMessageClick(msg._id)}
                   style={{
-                    padding: "12px 14px",
-                    borderRadius: "12px",
-                    marginBottom: "8px",
-                    cursor: "pointer",
+                    padding: "12px 14px", borderRadius: "12px",
+                    marginBottom: "8px", cursor: "pointer",
                     background: "rgba(255,255,255,0.04)",
                     border: "1px solid rgba(255,255,255,0.06)",
                     transition: "all 0.15s",
@@ -217,10 +231,7 @@ export default function SearchMessages({
                       {formatTime(msg.createdAt)}
                     </span>
                   </div>
-                  <p style={{
-                    color: "#d1d5db", fontSize: "13px",
-                    margin: 0, lineHeight: 1.5,
-                  }}>
+                  <p style={{ color: "#d1d5db", fontSize: "13px", margin: 0, lineHeight: 1.5 }}>
                     {highlightText(msg.content, query)}
                   </p>
                 </div>

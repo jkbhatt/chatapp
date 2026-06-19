@@ -1,3 +1,5 @@
+"use client";
+
 import { create } from "zustand";
 import { User } from "@/types";
 
@@ -10,6 +12,7 @@ interface AuthStore {
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   loadUserFromStorage: () => void;
+  updateUser: (user: User) => void;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
@@ -20,6 +23,7 @@ const useAuthStore = create<AuthStore>((set) => ({
   isAuthenticated: false,
   isLoading: false,
 
+  // ── Load user from localStorage on app start ──────────────
   loadUserFromStorage: () => {
     if (typeof window === "undefined") return;
     try {
@@ -35,10 +39,10 @@ const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
+  // ── Login ─────────────────────────────────────────────────
   login: async (email: string, password: string) => {
     set({ isLoading: true });
     try {
-      // Using fetch directly instead of axios to avoid any interceptor issues
       const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,6 +67,8 @@ const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
+  // ── Register ──────────────────────────────────────────────
+  // FIX: now saves token + logs user in immediately after register
   register: async (username: string, email: string, password: string) => {
     set({ isLoading: true });
     try {
@@ -78,13 +84,23 @@ const useAuthStore = create<AuthStore>((set) => ({
         throw new Error(data.message || "Registration failed");
       }
 
-      set({ isLoading: false });
+      // Save token & user — user is now logged in right away
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+
+      set({
+        user: data.user,
+        token: data.token,
+        isAuthenticated: true,
+        isLoading: false,
+      });
     } catch (error: any) {
       set({ isLoading: false });
       throw new Error(error.message || "Registration failed. Please try again.");
     }
   },
 
+  // ── Logout ────────────────────────────────────────────────
   logout: async () => {
     try {
       const token = localStorage.getItem("token");
@@ -93,17 +109,23 @@ const useAuthStore = create<AuthStore>((set) => ({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
           },
         });
       }
     } catch {
-      // ignore errors
+      // ignore — we always clear local state
     } finally {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       set({ user: null, token: null, isAuthenticated: false });
     }
+  },
+
+  // ── Update user in store + localStorage (used by profile edit) ──
+  updateUser: (user: User) => {
+    localStorage.setItem("user", JSON.stringify(user));
+    set({ user });
   },
 }));
 

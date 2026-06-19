@@ -7,8 +7,9 @@ import {
   ArrowLeft, Camera, Save, User,
   Mail, FileText, Check, X,
 } from "lucide-react";
-import axiosInstance from "@/lib/axios";
 import useAuthStore from "@/store/authStore";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 const AVATAR_SEEDS = [
   "Felix", "Aneka", "Mia", "Zoe", "Leo",
@@ -19,7 +20,8 @@ const AVATAR_SEEDS = [
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, loadUserFromStorage } = useAuthStore();
+  // FIX: use updateUser from authStore so Zustand state + localStorage stay in sync
+  const { user, loadUserFromStorage, updateUser } = useAuthStore();
 
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
@@ -27,16 +29,15 @@ export default function ProfilePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
 
+  // ── Auth check ────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) {
-      window.location.replace("/login");
-      return;
-    }
+    if (!token) { window.location.replace("/login"); return; }
     loadUserFromStorage();
     setIsAuthChecked(true);
   }, []);
 
+  // ── Pre-fill form with current user data ─────────────────
   useEffect(() => {
     if (user) {
       setUsername(user.username);
@@ -45,6 +46,8 @@ export default function ProfilePage() {
     }
   }, [user]);
 
+  // ── Save profile ──────────────────────────────────────────
+  // FIX: replaced axiosInstance with plain fetch — no extra dependency needed
   const handleSave = async () => {
     if (!username.trim()) {
       toast.error("Username cannot be empty");
@@ -53,25 +56,37 @@ export default function ProfilePage() {
 
     setIsLoading(true);
     try {
-      const response = await axiosInstance.put("/users/profile/update", {
-        username: username.trim(),
-        bio: bio.trim(),
-        avatar: selectedAvatar,
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/users/profile/update`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          bio: bio.trim(),
+          avatar: selectedAvatar,
+        }),
       });
 
-      // Update localStorage
-      const updatedUser = response.data.user;
-      localStorage.setItem("user", JSON.stringify(updatedUser));
-      loadUserFromStorage();
+      const data = await res.json();
 
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to update profile");
+      }
+
+      // FIX: update Zustand store + localStorage together via updateUser()
+      updateUser(data.user);
       toast.success("Profile updated! ✅");
     } catch (error: any) {
-      toast.error(error?.response?.data?.message || "Failed to update profile");
+      toast.error(error.message || "Failed to update profile");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // ── Loading screen ────────────────────────────────────────
   if (!isAuthChecked || !user) {
     return (
       <div style={{
@@ -101,6 +116,7 @@ export default function ProfilePage() {
         borderBottom: "1px solid rgba(255,255,255,0.06)",
         padding: "16px 24px",
         display: "flex", alignItems: "center", gap: "16px",
+        position: "sticky", top: 0, zIndex: 10,
       }}>
         <button
           onClick={() => router.push("/chat")}
@@ -148,7 +164,7 @@ export default function ProfilePage() {
 
       <div style={{ maxWidth: "640px", margin: "0 auto", padding: "32px 24px" }}>
 
-        {/* Current Avatar Preview */}
+        {/* Avatar preview */}
         <div style={{
           background: "#111118",
           border: "1px solid rgba(255,255,255,0.06)",
@@ -176,12 +192,12 @@ export default function ProfilePage() {
             </div>
           </div>
           <p style={{ color: "#fff", fontSize: "18px", fontWeight: 700, margin: "0 0 4px" }}>
-            {user.username}
+            {username || user.username}
           </p>
           <p style={{ color: "#6b7280", fontSize: "13px", margin: 0 }}>{user.email}</p>
         </div>
 
-        {/* Avatar Picker */}
+        {/* Avatar picker */}
         <div style={{
           background: "#111118",
           border: "1px solid rgba(255,255,255,0.06)",
@@ -192,9 +208,7 @@ export default function ProfilePage() {
             <Camera size={16} color="#7c3aed" />
             Choose Avatar
           </h3>
-          <div style={{
-            display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px",
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px" }}>
             {AVATAR_SEEDS.map((seed) => {
               const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
               const isSelected = selectedAvatar === avatarUrl;
@@ -209,11 +223,7 @@ export default function ProfilePage() {
                     transition: "all 0.2s",
                   }}
                 >
-                  <img
-                    src={avatarUrl}
-                    alt={seed}
-                    style={{ width: "100%", borderRadius: "50%", display: "block" }}
-                  />
+                  <img src={avatarUrl} alt={seed} style={{ width: "100%", borderRadius: "50%", display: "block" }} />
                   {isSelected && (
                     <div style={{
                       position: "absolute", bottom: "0", right: "0",
@@ -231,7 +241,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Profile Form */}
+        {/* Form fields */}
         <div style={{
           background: "#111118",
           border: "1px solid rgba(255,255,255,0.06)",
@@ -248,9 +258,7 @@ export default function ProfilePage() {
               Username
             </label>
             <div style={{ position: "relative" }}>
-              <User size={15} color="#4b5563" style={{
-                position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
-              }} />
+              <User size={15} color="#4b5563" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -263,19 +271,11 @@ export default function ProfilePage() {
                   borderRadius: "12px", color: "#fff",
                   fontSize: "14px", outline: "none", boxSizing: "border-box",
                 }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = "#7c3aed";
-                  e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.15)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.1)";
-                  e.target.style.boxShadow = "none";
-                }}
+                onFocus={(e) => { e.target.style.borderColor = "#7c3aed"; e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.15)"; }}
+                onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.1)"; e.target.style.boxShadow = "none"; }}
               />
             </div>
-            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>
-              {username.length}/20 characters
-            </p>
+            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>{username.length}/20 characters</p>
           </div>
 
           {/* Email (readonly) */}
@@ -284,9 +284,7 @@ export default function ProfilePage() {
               Email address
             </label>
             <div style={{ position: "relative" }}>
-              <Mail size={15} color="#4b5563" style={{
-                position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
-              }} />
+              <Mail size={15} color="#4b5563" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
               <input
                 value={user.email}
                 disabled
@@ -300,9 +298,7 @@ export default function ProfilePage() {
                 }}
               />
             </div>
-            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>
-              Email cannot be changed
-            </p>
+            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>Email cannot be changed</p>
           </div>
 
           {/* Bio */}
@@ -311,9 +307,7 @@ export default function ProfilePage() {
               Bio
             </label>
             <div style={{ position: "relative" }}>
-              <FileText size={15} color="#4b5563" style={{
-                position: "absolute", left: "14px", top: "14px",
-              }} />
+              <FileText size={15} color="#4b5563" style={{ position: "absolute", left: "14px", top: "14px" }} />
               <textarea
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
@@ -329,19 +323,11 @@ export default function ProfilePage() {
                   boxSizing: "border-box", resize: "none",
                   fontFamily: "inherit", lineHeight: 1.5,
                 }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = "#7c3aed";
-                  e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.15)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = "rgba(255,255,255,0.1)";
-                  e.target.style.boxShadow = "none";
-                }}
+                onFocus={(e) => { e.target.style.borderColor = "#7c3aed"; e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.15)"; }}
+                onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.1)"; e.target.style.boxShadow = "none"; }}
               />
             </div>
-            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>
-              {bio.length}/100 characters
-            </p>
+            <p style={{ color: "#4b5563", fontSize: "11px", margin: "6px 0 0" }}>{bio.length}/100 characters</p>
           </div>
         </div>
 

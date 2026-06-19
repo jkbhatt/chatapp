@@ -27,8 +27,10 @@ export default function RegisterPage() {
 
     try {
       await register(username.trim(), email.trim(), password.trim());
-      toast.success("Account created! Please login now 🎉");
-      // Redirect to login after register
+
+toast.success("Account created! 🎉");
+
+window.location.replace("/chat");
       window.location.replace("/login");
     } catch (error: any) {
       toast.error(error.message || "Registration failed");
