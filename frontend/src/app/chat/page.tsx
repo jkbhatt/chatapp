@@ -38,6 +38,7 @@ export default function ChatPage() {
     isUsersLoading, isMessagesLoading, replyTo,
     getUsers, getMessages, sendMessage, deleteMessage,
     setSelectedUser, setOnlineUsers, addMessage, setReplyTo,
+    removeMessageLocally,
   } = useChatStore();
 
   const [messageInput, setMessageInput] = useState("");
@@ -108,12 +109,16 @@ export default function ChatPage() {
     });
     socket.on("userTyping", () => setIsTyping(true));
     socket.on("userStoppedTyping", () => setIsTyping(false));
+    socket.on("messageDeleted", ({ messageId }: { messageId: string }) => {
+      removeMessageLocally(messageId);
+    });
     getUsers();
     return () => {
       socket.off("getOnlineUsers");
       socket.off("newMessage");
       socket.off("userTyping");
       socket.off("userStoppedTyping");
+      socket.off("messageDeleted");
     };
   }, [isAuthChecked, user, mutedUsers]);
 
