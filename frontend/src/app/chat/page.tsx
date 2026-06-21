@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import {
   MessageCircle, LogOut, Search, Send,
   Bell, Settings, Phone, Video,
-  MoreVertical, Smile, Paperclip, X, User, Reply,
+  MoreVertical, Smile, Paperclip, X, User, Reply, ArrowLeft,
 } from "lucide-react";
 import useAuthStore from "@/store/authStore";
 import useChatStore from "@/store/chatStore";
@@ -50,19 +50,21 @@ export default function ChatPage() {
   const [viewingProfile, setViewingProfile] = useState(false);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [activeCall, setActiveCall] = useState<"audio" | "video" | null>(null);
   const [mutedUsers, setMutedUsers] = useState<string[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
+  // Mobile: track which panel to show
+  const [mobileView, setMobileView] = useState<"sidebar" | "chat">("sidebar");
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
-  const quickEmojis = ["😊","😂","❤️","👍","🔥","🎉","😎","🙏","💯","✨"];
+  const quickEmojis = ["😊","😂","❤","👍","🔥","🎉","😎","🙏","💯","✨"];
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -92,16 +94,14 @@ export default function ChatPage() {
       addMessage(message);
       if (message.sender._id !== user._id) {
         const isMuted = mutedUsers.includes(message.sender._id);
-
         pushNotification({
           type: "message",
           title: message.sender.username,
           body: message.type === "image" ? "📸 Sent an image" : message.content,
           avatar: message.sender.avatar,
         });
-
         if (!isMuted) {
-          toast(`💬 ${message.sender.username}: ${message.type === "image" ? "📸 Image" : message.content.slice(0, 40)}`, {
+          toast(`💬 ${message.sender.username}: ${message.type === "image" ? "📸 Image" : message.content.slice(0,40)}`, {
             style: { background: "#1a1a2e", color: "#fff", border: "1px solid rgba(124,58,237,0.3)", borderRadius: "12px" },
           });
         }
@@ -123,7 +123,12 @@ export default function ChatPage() {
   }, [isAuthChecked, user, mutedUsers]);
 
   useEffect(() => {
-    if (selectedUser) { getMessages(selectedUser._id); setShowSearch(false); }
+    if (selectedUser) {
+      getMessages(selectedUser._id);
+      setShowSearch(false);
+      // Switch to chat view on mobile when user selected
+      setMobileView("chat");
+    }
   }, [selectedUser]);
 
   useEffect(() => {
@@ -159,60 +164,33 @@ export default function ChatPage() {
       e.preventDefault();
       handleSendMessage(e as unknown as React.FormEvent);
     }
-    if (e.key === "Escape" && replyTo) {
-      setReplyTo(null);
-    }
+    if (e.key === "Escape" && replyTo) setReplyTo(null);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedUser) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
-    }
-
+    if (!file.type.startsWith("image/")) { toast.error("Please select an image file"); return; }
     const sizeMB = file.size / (1024 * 1024);
-    if (sizeMB > 10) {
-      toast.error(`Image too large (${sizeMB.toFixed(1)}MB). Max 10MB allowed.`);
-      return;
-    }
-
+    if (sizeMB > 10) { toast.error(`Image too large (${sizeMB.toFixed(1)}MB). Max 10MB allowed.`); return; }
     setIsUploading(true);
-
     try {
       let base64: string;
-
       if (sizeMB > 1) {
-        toast(`🗜️ Compressing image...`, { duration: 2000 });
-
+        toast("🗜️ Compressing image...", { duration: 2000 });
         base64 = await new Promise<string>((resolve, reject) => {
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
           const img = new Image();
-
           img.onload = () => {
-            let width = img.width;
-            let height = img.height;
+            let width = img.width; let height = img.height;
             const maxSize = 1280;
-
-            if (width > maxSize) {
-              height = Math.round((height * maxSize) / width);
-              width = maxSize;
-            }
-            if (height > maxSize) {
-              width = Math.round((width * maxSize) / height);
-              height = maxSize;
-            }
-
-            canvas.width = width;
-            canvas.height = height;
+            if (width > maxSize) { height = Math.round((height * maxSize) / width); width = maxSize; }
+            if (height > maxSize) { width = Math.round((width * maxSize) / height); height = maxSize; }
+            canvas.width = width; canvas.height = height;
             ctx?.drawImage(img, 0, 0, width, height);
-
             resolve(canvas.toDataURL("image/jpeg", 0.75));
           };
-
           img.onerror = reject;
           img.src = URL.createObjectURL(file);
         });
@@ -224,38 +202,19 @@ export default function ChatPage() {
           reader.readAsDataURL(file);
         });
       }
-
       await sendMessage(base64, "image");
       toast.success("Image sent! 📸");
-    } catch {
-      toast.error("Failed to send image. Try again.");
-    } finally {
+    } catch { toast.error("Failed to send image. Try again."); }
+    finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const handleLogout = async () => {
-    disconnectSocket();
-    await logout();
-    window.location.replace("/login");
-  };
-
-  const handleDeleteMessage = async (messageId: string) => {
-    await deleteMessage(messageId);
-    toast.success("Message deleted");
-  };
-
-  const handleReply = (message: any) => {
-    setReplyTo(message);
-    inputRef.current?.focus();
-  };
-
-  const insertEmoji = (emoji: string) => {
-    setMessageInput((prev) => prev + emoji);
-    inputRef.current?.focus();
-    setShowEmojiHint(false);
-  };
+  const handleLogout = async () => { disconnectSocket(); await logout(); window.location.replace("/login"); };
+  const handleDeleteMessage = async (messageId: string) => { await deleteMessage(messageId); toast.success("Message deleted"); };
+  const handleReply = (message: any) => { setReplyTo(message); inputRef.current?.focus(); };
+  const insertEmoji = (emoji: string) => { setMessageInput((prev) => prev + emoji); inputRef.current?.focus(); setShowEmojiHint(false); };
 
   const handleSearchMessageClick = (messageId: string) => {
     setShowSearch(false);
@@ -290,14 +249,11 @@ export default function ChatPage() {
     });
   };
 
-  const handleEndCall = () => {
-    setActiveCall(null);
-    toast.success("Call ended");
-  };
+  const handleEndCall = () => { setActiveCall(null); toast.success("Call ended"); };
 
   const handleClearChat = () => {
     if (!selectedUser) return;
-    if (confirm(`Clear all messages with ${selectedUser.username}? This cannot be undone.`)) {
+    if (confirm(`Clear all messages with ${selectedUser.username}?`)) {
       messages.forEach((msg) => deleteMessage(msg._id));
       toast.success("Chat cleared");
     }
@@ -305,42 +261,25 @@ export default function ChatPage() {
 
   const handleToggleMute = () => {
     if (!selectedUser) return;
-    setMutedUsers((prev) =>
-      prev.includes(selectedUser._id)
-        ? prev.filter((id) => id !== selectedUser._id)
-        : [...prev, selectedUser._id]
-    );
-    toast.success(
-      mutedUsers.includes(selectedUser._id)
-        ? `Unmuted ${selectedUser.username}`
-        : `Muted ${selectedUser.username}`
-    );
+    setMutedUsers((prev) => prev.includes(selectedUser._id) ? prev.filter((id) => id !== selectedUser._id) : [...prev, selectedUser._id]);
+    toast.success(mutedUsers.includes(selectedUser._id) ? `Unmuted ${selectedUser.username}` : `Muted ${selectedUser.username}`);
   };
 
-  const handleMarkAllNotificationsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
-
+  const handleMarkAllNotificationsRead = () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
-
-  const filteredUsers = users.filter((u) =>
-    u.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = users.filter((u) => u.username.toLowerCase().includes(searchQuery.toLowerCase()));
   const isOnline = (userId: string) => onlineUsers.includes(userId);
+
+  // Handle back button on mobile
+  const handleBackToSidebar = () => {
+    setMobileView("sidebar");
+    setSelectedUser(null);
+  };
 
   if (!isAuthChecked || !user) {
     return (
-      <div style={{
-        height: "100vh", background: "#0a0a0f",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexDirection: "column", gap: "16px",
-      }}>
-        <div style={{
-          width: "40px", height: "40px",
-          border: "3px solid rgba(124,58,237,0.3)",
-          borderTopColor: "#7c3aed", borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-        }} />
+      <div style={{ height: "100vh", background: "#0a0a0f", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px" }}>
+        <div style={{ width: "40px", height: "40px", border: "3px solid rgba(124,58,237,0.3)", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
         <p style={{ color: "#6b7280", fontSize: "14px" }}>Loading ChatApp...</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
@@ -348,63 +287,31 @@ export default function ChatPage() {
   }
 
   return (
-    <div style={{
-      height: "100vh", background: "#0a0a0f",
-      display: "flex", overflow: "hidden",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    }}>
-      {/* SIDEBAR */}
-      <div style={{
-        width: "320px", background: "#111118",
-        borderRight: "1px solid rgba(255,255,255,0.06)",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-      }}>
-        <div style={{
-          padding: "16px 18px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          position: "relative",
-        }}>
+    <div className="chat-container">
+
+      {/* ═══════════════════════════════════════
+          SIDEBAR
+      ═══════════════════════════════════════ */}
+      <div className={`sidebar ${mobileView === "chat" ? "sidebar-hidden" : "sidebar-visible"}`}>
+
+        {/* Sidebar Header */}
+        <div className="sidebar-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{
-              width: "34px", height: "34px",
-              background: "linear-gradient(135deg, #7c3aed, #3b82f6)",
-              borderRadius: "10px", display: "flex",
-              alignItems: "center", justifyContent: "center",
-            }}>
+            <div style={{ width: "34px", height: "34px", background: "linear-gradient(135deg, #7c3aed, #3b82f6)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <MessageCircle size={17} color="white" />
             </div>
-            <span style={{ fontSize: "17px", fontWeight: 700, color: "#fff" }}>
-              ChatApp
-            </span>
+            <span style={{ fontSize: "17px", fontWeight: 700, color: "#fff" }}>ChatApp</span>
           </div>
           <div style={{ display: "flex", gap: "2px", position: "relative" }}>
             <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                style={{
-                  background: showNotifications ? "rgba(124,58,237,0.15)" : "none",
-                  border: "none", cursor: "pointer",
-                  color: showNotifications ? "#a78bfa" : "#6b7280",
-                  padding: "7px", borderRadius: "8px", display: "flex",
-                  position: "relative",
-                }}
-              >
+              <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: showNotifications ? "rgba(124,58,237,0.15)" : "none", border: "none", cursor: "pointer", color: showNotifications ? "#a78bfa" : "#6b7280", padding: "7px", borderRadius: "8px", display: "flex", position: "relative" }}>
                 <Bell size={17} />
                 {unreadNotificationCount > 0 && (
-                  <span style={{
-                    position: "absolute", top: "2px", right: "2px",
-                    width: "8px", height: "8px", borderRadius: "50%",
-                    background: "#ef4444", border: "2px solid #111118",
-                  }} />
+                  <span style={{ position: "absolute", top: "2px", right: "2px", width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", border: "2px solid #111118" }} />
                 )}
               </button>
               {showNotifications && (
-                <NotificationPanel
-                  notifications={notifications}
-                  onClose={() => setShowNotifications(false)}
-                  onMarkAllRead={handleMarkAllNotificationsRead}
-                />
+                <NotificationPanel notifications={notifications} onClose={() => setShowNotifications(false)} onMarkAllRead={handleMarkAllNotificationsRead} />
               )}
             </div>
             <button onClick={() => router.push("/settings")} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "7px", borderRadius: "8px", display: "flex" }}>
@@ -413,6 +320,7 @@ export default function ChatPage() {
           </div>
         </div>
 
+        {/* Search */}
         <div style={{ padding: "12px 14px" }}>
           <div style={{ position: "relative" }}>
             <Search size={14} color="#4b5563" style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)" }} />
@@ -420,30 +328,22 @@ export default function ChatPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search users..."
-              style={{
-                width: "100%", padding: "9px 11px 9px 32px",
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "10px", color: "#fff",
-                fontSize: "13px", outline: "none", boxSizing: "border-box",
-              }}
+              style={{ width: "100%", padding: "9px 11px 9px 32px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", color: "#fff", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
             />
           </div>
         </div>
 
+        {/* Online count */}
         {onlineUsers.length > 0 && (
           <div style={{ padding: "0 14px 10px" }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: "6px",
-              background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)",
-              borderRadius: "100px", padding: "4px 10px",
-            }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "100px", padding: "4px 10px" }}>
               <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981" }} />
               <span style={{ color: "#10b981", fontSize: "12px", fontWeight: 500 }}>{onlineUsers.length} online</span>
             </div>
           </div>
         )}
 
+        {/* Users list */}
         <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px" }}>
           {isUsersLoading ? Array(5).fill(0).map((_, i) => <UserSkeleton key={i} />) :
             filteredUsers.length === 0 ? (
@@ -455,21 +355,10 @@ export default function ChatPage() {
                 key={u._id}
                 onClick={() => setSelectedUser(u)}
                 style={{
-                  padding: "10px 11px",
-                  borderRadius: "12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "11px",
-                  cursor: "pointer",
-                  marginBottom: "2px",
-                  background:
-                    selectedUser?._id === u._id
-                      ? "rgba(124,58,237,0.15)"
-                      : "transparent",
-                  border:
-                    selectedUser?._id === u._id
-                      ? "1px solid rgba(124,58,237,0.25)"
-                      : "1px solid transparent",
+                  padding: "10px 11px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "11px",
+                  cursor: "pointer", marginBottom: "2px",
+                  background: selectedUser?._id === u._id ? "rgba(124,58,237,0.15)" : "transparent",
+                  border: selectedUser?._id === u._id ? "1px solid rgba(124,58,237,0.25)" : "1px solid transparent",
                   transition: "all 0.15s",
                 }}
               >
@@ -477,40 +366,13 @@ export default function ChatPage() {
                   <img
                     src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`}
                     alt={u.username}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      router.push(`/profile/${u._id}`);
-                    }}
-                    style={{
-                      width: "42px",
-                      height: "42px",
-                      borderRadius: "50%",
-                      border: "2px solid rgba(255,255,255,0.08)",
-                      cursor: "pointer",
-                    }}
+                    style={{ width: "42px", height: "42px", borderRadius: "50%", border: "2px solid rgba(255,255,255,0.08)" }}
                   />
-                  <div style={{
-                    position: "absolute", bottom: "1px", right: "1px",
-                    width: "10px", height: "10px", borderRadius: "50%",
-                    background: isOnline(u._id) ? "#10b981" : "#374151", border: "2px solid #111118",
-                  }} />
+                  <div style={{ position: "absolute", bottom: "1px", right: "1px", width: "10px", height: "10px", borderRadius: "50%", background: isOnline(u._id) ? "#10b981" : "#374151", border: "2px solid #111118" }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/profile/${u._id}`);
-                      }}
-                      style={{
-                        color: "#f1f1f3",
-                        fontSize: "14px",
-                        fontWeight: 600,
-                        cursor: "pointer"
-                      }}
-                    >
-                      {u.username}
-                    </span>
+                    <span style={{ color: "#f1f1f3", fontSize: "14px", fontWeight: 600 }}>{u.username}</span>
                     {isOnline(u._id) && <span style={{ color: "#10b981", fontSize: "11px" }}>Online</span>}
                   </div>
                   <span style={{ color: "#6b7280", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
@@ -522,19 +384,14 @@ export default function ChatPage() {
           }
         </div>
 
-        <div style={{
-          padding: "12px 14px", borderTop: "1px solid rgba(255,255,255,0.06)",
-          display: "flex", alignItems: "center", gap: "11px",
-        }}>
+        {/* Current user footer */}
+        <div style={{ padding: "12px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: "11px" }}>
           <div style={{ position: "relative" }}>
-            <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt={user.username}
-              style={{ width: "36px", height: "36px", borderRadius: "50%", border: "2px solid rgba(124,58,237,0.4)" }} />
+            <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`} alt={user.username} style={{ width: "36px", height: "36px", borderRadius: "50%", border: "2px solid rgba(124,58,237,0.4)" }} />
             <div style={{ position: "absolute", bottom: "0", right: "0", width: "9px", height: "9px", borderRadius: "50%", background: "#10b981", border: "2px solid #111118" }} />
           </div>
           <div style={{ flex: 1 }}>
-            <div onClick={() => router.push("/profile")} style={{ color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
-              {user.username}
-            </div>
+            <div onClick={() => router.push("/profile")} style={{ color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>{user.username}</div>
             <div style={{ color: "#10b981", fontSize: "11px" }}>● Online</div>
           </div>
           <button onClick={() => router.push("/profile")} style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "8px", color: "#a78bfa", padding: "7px", cursor: "pointer", display: "flex" }}>
@@ -546,108 +403,62 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* MAIN AREA */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+      {/* ═══════════════════════════════════════
+          MAIN CHAT AREA
+      ═══════════════════════════════════════ */}
+      <div className={`main-area ${mobileView === "sidebar" ? "main-hidden" : "main-visible"}`}>
         {selectedUser ? (
           <>
             {/* Chat Header */}
-            <div style={{
-              padding: "13px 22px", borderBottom: "1px solid rgba(255,255,255,0.06)",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "#111118", flexShrink: 0,
-              position: "relative",
-            }}>
-              <div
-                onClick={() => setViewingProfile(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ position: "relative" }}>
-                  <img
-                    src={selectedUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.username}`}
-                    alt={selectedUser.username}
-                    style={{
-                      width: "40px",
-                      height: "40px",
-                      borderRadius: "50%",
-                      border: "2px solid rgba(255,255,255,0.1)",
-                    }}
-                  />
-                  <div style={{
-                    position: "absolute", bottom: "1px", right: "1px",
-                    width: "10px", height: "10px", borderRadius: "50%",
-                    background: isOnline(selectedUser._id) ? "#10b981" : "#374151",
-                    border: "2px solid #111118",
-                  }} />
-                </div>
-                <div>
-                  <div style={{
-                    color: "#fff",
-                    fontSize: "15px",
-                    fontWeight: 600,
-                  }}>
-                    {selectedUser.username}
+            <div style={{ padding: "13px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#111118", flexShrink: 0, position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+
+                {/* Back button — mobile only */}
+                <button
+                  className="back-btn"
+                  onClick={handleBackToSidebar}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#a78bfa", padding: "6px", display: "flex", borderRadius: "8px" }}
+                >
+                  <ArrowLeft size={20} />
+                </button>
+
+                <div onClick={() => setViewingProfile(true)} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                  <div style={{ position: "relative" }}>
+                    <img src={selectedUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.username}`} alt={selectedUser.username} style={{ width: "38px", height: "38px", borderRadius: "50%", border: "2px solid rgba(255,255,255,0.1)" }} />
+                    <div style={{ position: "absolute", bottom: "1px", right: "1px", width: "9px", height: "9px", borderRadius: "50%", background: isOnline(selectedUser._id) ? "#10b981" : "#374151", border: "2px solid #111118" }} />
                   </div>
-                  <div style={{ fontSize: "12px", color: isTyping ? "#a78bfa" : "#6b7280" }}>
-                    {isTyping ? "✍️ typing..." : isOnline(selectedUser._id) ? "🟢 Online" : "⚫ Offline"}
+                  <div>
+                    <div style={{ color: "#fff", fontSize: "15px", fontWeight: 600 }}>{selectedUser.username}</div>
+                    <div style={{ fontSize: "12px", color: isTyping ? "#a78bfa" : "#6b7280" }}>
+                      {isTyping ? "✏️ typing..." : isOnline(selectedUser._id) ? "🟢 Online" : "⚫ Offline"}
+                    </div>
                   </div>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "4px" }}>
-                <button onClick={() => setShowSearch(!showSearch)} style={{
-                  background: showSearch ? "rgba(124,58,237,0.2)" : "none",
-                  border: showSearch ? "1px solid rgba(124,58,237,0.3)" : "1px solid transparent",
-                  cursor: "pointer", color: showSearch ? "#a78bfa" : "#6b7280",
-                  padding: "8px", borderRadius: "8px", display: "flex",
-                }}>
-                  <Search size={18} />
+
+              <div style={{ display: "flex", gap: "2px" }}>
+                <button onClick={() => setShowSearch(!showSearch)} style={{ background: showSearch ? "rgba(124,58,237,0.2)" : "none", border: showSearch ? "1px solid rgba(124,58,237,0.3)" : "1px solid transparent", cursor: "pointer", color: showSearch ? "#a78bfa" : "#6b7280", padding: "7px", borderRadius: "8px", display: "flex" }}>
+                  <Search size={17} />
                 </button>
-                <button
-                  onClick={() => handleStartCall("audio")}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "8px", borderRadius: "8px", display: "flex" }}
-                >
-                  <Phone size={18} />
+                <button onClick={() => handleStartCall("audio")} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "7px", borderRadius: "8px", display: "flex" }}>
+                  <Phone size={17} />
                 </button>
-                <button
-                  onClick={() => handleStartCall("video")}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "8px", borderRadius: "8px", display: "flex" }}
-                >
-                  <Video size={18} />
+                <button onClick={() => handleStartCall("video")} className="hide-on-small" style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "7px", borderRadius: "8px", display: "flex" }}>
+                  <Video size={17} />
                 </button>
                 <div style={{ position: "relative" }}>
-                  <button
-                    onClick={() => setShowHeaderMenu(!showHeaderMenu)}
-                    style={{
-                      background: showHeaderMenu ? "rgba(124,58,237,0.15)" : "none",
-                      border: "none", cursor: "pointer",
-                      color: showHeaderMenu ? "#a78bfa" : "#6b7280",
-                      padding: "8px", borderRadius: "8px", display: "flex",
-                    }}
-                  >
-                    <MoreVertical size={18} />
+                  <button onClick={() => setShowHeaderMenu(!showHeaderMenu)} style={{ background: showHeaderMenu ? "rgba(124,58,237,0.15)" : "none", border: "none", cursor: "pointer", color: showHeaderMenu ? "#a78bfa" : "#6b7280", padding: "7px", borderRadius: "8px", display: "flex" }}>
+                    <MoreVertical size={17} />
                   </button>
                   {showHeaderMenu && (
-                    <ChatHeaderMenu
-                      onClose={() => setShowHeaderMenu(false)}
-                      onClearChat={handleClearChat}
-                      onViewProfile={() => setViewingProfile(true)}
-                      onToggleMute={handleToggleMute}
-                      isMuted={mutedUsers.includes(selectedUser._id)}
-                    />
+                    <ChatHeaderMenu onClose={() => setShowHeaderMenu(false)} onClearChat={handleClearChat} onViewProfile={() => setViewingProfile(true)} onToggleMute={handleToggleMute} isMuted={mutedUsers.includes(selectedUser._id)} />
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Messages */}
-            <div style={{
-              flex: 1, overflowY: "auto", padding: "20px 22px",
-              display: "flex", flexDirection: "column", gap: "2px", background: "#0a0a0f",
-            }}>
+            {/* Messages area */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "2px", background: "#0a0a0f" }}>
               {isMessagesLoading ? Array(5).fill(0).map((_, i) => <MessageSkeleton key={i} isMine={i % 3 === 0} />) :
                 messages.length === 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "12px" }}>
@@ -672,12 +483,7 @@ export default function ChatPage() {
                               <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
                             </div>
                           )}
-                          <MessageBubble
-                            message={msg}
-                            currentUserId={user._id}
-                            onDelete={handleDeleteMessage}
-                            onReply={handleReply}
-                          />
+                          <MessageBubble message={msg} currentUserId={user._id} onDelete={handleDeleteMessage} onReply={handleReply} />
                         </div>
                       );
                     })}
@@ -690,29 +496,21 @@ export default function ChatPage() {
 
             {/* Quick Emojis */}
             {showEmojiHint && (
-              <div style={{ padding: "10px 22px", background: "#111118", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: "8px", alignItems: "center" }}>
+              <div style={{ padding: "8px 16px", background: "#111118", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: "6px", alignItems: "center", overflowX: "auto" }}>
                 {quickEmojis.map((emoji) => (
-                  <button key={emoji} onClick={() => insertEmoji(emoji)} style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", fontSize: "18px" }}>{emoji}</button>
+                  <button key={emoji} onClick={() => insertEmoji(emoji)} style={{ background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", fontSize: "18px", flexShrink: 0 }}>{emoji}</button>
                 ))}
-                <button onClick={() => setShowEmojiHint(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", marginLeft: "auto", display: "flex" }}>
+                <button onClick={() => setShowEmojiHint(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", marginLeft: "auto", display: "flex", flexShrink: 0 }}>
                   <X size={16} />
                 </button>
               </div>
             )}
 
-            {/* Reply Preview Bar */}
+            {/* Reply Preview */}
             {replyTo && (
-              <div style={{
-                padding: "10px 22px", background: "#111118",
-                borderTop: "1px solid rgba(255,255,255,0.06)",
-                display: "flex", alignItems: "center", gap: "12px",
-              }}>
+              <div style={{ padding: "10px 16px", background: "#111118", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: "12px" }}>
                 <Reply size={16} color="#7c3aed" />
-                <div style={{
-                  flex: 1, background: "rgba(124,58,237,0.1)",
-                  border: "1px solid rgba(124,58,237,0.2)",
-                  borderRadius: "8px", padding: "6px 10px",
-                }}>
+                <div style={{ flex: 1, background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "8px", padding: "6px 10px" }}>
                   <div style={{ color: "#a78bfa", fontSize: "12px", fontWeight: 600, marginBottom: "2px" }}>
                     Replying to {replyTo.sender._id === user._id ? "yourself" : replyTo.sender.username}
                   </div>
@@ -728,23 +526,18 @@ export default function ChatPage() {
 
             {/* Upload progress */}
             {isUploading && (
-              <div style={{ padding: "8px 22px", background: "#111118", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ padding: "8px 16px", background: "#111118", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: "10px" }}>
                 <div style={{ width: "16px", height: "16px", border: "2px solid rgba(124,58,237,0.3)", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                 <span style={{ color: "#9ca3af", fontSize: "13px" }}>Sending image...</span>
               </div>
             )}
 
-            {/* Input */}
-            <div style={{ padding: "12px 22px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "#111118", flexShrink: 0 }}>
+            {/* Message Input */}
+            <div style={{ padding: "10px 16px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "#111118", flexShrink: 0 }}>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
               <form onSubmit={handleSendMessage}>
-                <div style={{
-                  display: "flex", alignItems: "center", gap: "8px",
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: "16px", padding: "6px 6px 6px 14px",
-                }}>
-                  <button type="button" onClick={() => setShowEmojiHint(!showEmojiHint)} style={{ background: showEmojiHint ? "rgba(124,58,237,0.2)" : "none", border: "none", cursor: "pointer", color: showEmojiHint ? "#a78bfa" : "#6b7280", padding: "6px", display: "flex", borderRadius: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", padding: "5px 5px 5px 12px" }}>
+                  <button type="button" onClick={() => setShowEmojiHint(!showEmojiHint)} style={{ background: showEmojiHint ? "rgba(124,58,237,0.2)" : "none", border: "none", cursor: "pointer", color: showEmojiHint ? "#a78bfa" : "#6b7280", padding: "6px", display: "flex", borderRadius: "8px", flexShrink: 0 }}>
                     <Smile size={20} />
                   </button>
                   <input
@@ -753,59 +546,40 @@ export default function ChatPage() {
                     onChange={handleTyping}
                     onKeyDown={handleKeyDown}
                     placeholder={replyTo ? `Reply to ${replyTo.sender.username}...` : `Message ${selectedUser.username}...`}
-                    style={{ flex: 1, background: "none", border: "none", color: "#fff", fontSize: "14px", outline: "none", padding: "6px 0" }}
+                    style={{ flex: 1, background: "none", border: "none", color: "#fff", fontSize: "14px", outline: "none", padding: "6px 0", minWidth: 0 }}
                   />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "6px", display: "flex" }}>
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "6px", display: "flex", flexShrink: 0 }}>
                     <Paperclip size={18} />
                   </button>
-                  <button type="submit" disabled={!messageInput.trim()} style={{
-                    background: messageInput.trim() ? "linear-gradient(135deg, #7c3aed, #6d28d9)" : "rgba(255,255,255,0.06)",
-                    border: "none", borderRadius: "12px", padding: "9px 16px",
-                    cursor: messageInput.trim() ? "pointer" : "not-allowed",
-                    color: "white", display: "flex", alignItems: "center",
-                    gap: "6px", fontSize: "13px", fontWeight: 600, transition: "all 0.2s",
-                  }}>
+                  <button type="submit" disabled={!messageInput.trim()} style={{ background: messageInput.trim() ? "linear-gradient(135deg, #7c3aed, #6d28d9)" : "rgba(255,255,255,0.06)", border: "none", borderRadius: "12px", padding: "9px 14px", cursor: messageInput.trim() ? "pointer" : "not-allowed", color: "white", display: "flex", alignItems: "center", gap: "5px", fontSize: "13px", fontWeight: 600, transition: "all 0.2s", flexShrink: 0 }}>
                     <Send size={15} />
-                    Send
+                    <span className="send-label">Send</span>
                   </button>
                 </div>
               </form>
               <p style={{ color: "#4b5563", fontSize: "11px", marginTop: "6px", textAlign: "center" }}>
-                Press Enter to send · Esc to cancel reply
+                Enter to send · Esc to cancel reply
               </p>
             </div>
 
             {showSearch && selectedUser && (
-              <SearchMessages
-                selectedUserId={selectedUser._id}
-                currentUserId={user._id}
-                onClose={() => setShowSearch(false)}
-                onMessageClick={handleSearchMessageClick}
-              />
+              <SearchMessages selectedUserId={selectedUser._id} currentUserId={user._id} onClose={() => setShowSearch(false)} onMessageClick={handleSearchMessageClick} />
             )}
             {viewingProfile && selectedUser && (
-              <UserProfilePanel
-                user={selectedUser}
-                isOnline={isOnline(selectedUser._id)}
-                onClose={() => setViewingProfile(false)}
-                onMessage={() => setViewingProfile(false)}
-              />
+              <UserProfilePanel user={selectedUser} isOnline={isOnline(selectedUser._id)} onClose={() => setViewingProfile(false)} onMessage={() => setViewingProfile(false)} />
             )}
             {activeCall && selectedUser && (
-              <CallModal
-                type={activeCall}
-                user={selectedUser}
-                onEnd={handleEndCall}
-              />
+              <CallModal type={activeCall} user={selectedUser} onEnd={handleEndCall} />
             )}
           </>
         ) : (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a0a0f", gap: "20px" }}>
-            <div style={{ width: "88px", height: "88px", background: "linear-gradient(135deg, #7c3aed, #3b82f6)", borderRadius: "26px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 20px 60px rgba(124,58,237,0.25)" }}>
-              <MessageCircle size={42} color="white" />
+          /* Welcome screen — only shows on desktop when no chat selected */
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0a0a0f", gap: "20px", padding: "20px" }}>
+            <div style={{ width: "80px", height: "80px", background: "linear-gradient(135deg, #7c3aed, #3b82f6)", borderRadius: "24px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 20px 60px rgba(124,58,237,0.25)" }}>
+              <MessageCircle size={38} color="white" />
             </div>
             <div style={{ textAlign: "center" }}>
-              <h2 style={{ color: "#fff", fontSize: "22px", fontWeight: 700, margin: "0 0 8px" }}>Welcome, {user.username}! 👋</h2>
+              <h2 style={{ color: "#fff", fontSize: "20px", fontWeight: 700, margin: "0 0 8px" }}>Welcome, {user.username}! 👋</h2>
               <p style={{ color: "#6b7280", fontSize: "14px", margin: 0 }}>Select a user from the sidebar to start chatting</p>
             </div>
             <div style={{ display: "flex", gap: "12px" }}>
@@ -813,9 +587,9 @@ export default function ChatPage() {
                 { emoji: "👥", label: "Users Online", value: onlineUsers.length },
                 { emoji: "💬", label: "Total Users", value: users.length },
               ].map((s) => (
-                <div key={s.label} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "18px 24px", textAlign: "center" }}>
-                  <div style={{ fontSize: "24px", marginBottom: "6px" }}>{s.emoji}</div>
-                  <div style={{ color: "#fff", fontSize: "22px", fontWeight: 700 }}>{s.value}</div>
+                <div key={s.label} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "16px", padding: "16px 20px", textAlign: "center" }}>
+                  <div style={{ fontSize: "22px", marginBottom: "6px" }}>{s.emoji}</div>
+                  <div style={{ color: "#fff", fontSize: "20px", fontWeight: 700 }}>{s.value}</div>
                   <div style={{ color: "#6b7280", fontSize: "12px" }}>{s.label}</div>
                 </div>
               ))}
@@ -825,10 +599,138 @@ export default function ChatPage() {
       </div>
 
       <style>{`
+        /* ── Reset & base ── */
+        * { box-sizing: border-box; }
+
+        /* ── Layout ── */
+        .chat-container {
+          height: 100vh;
+          background: #0a0a0f;
+          display: flex;
+          overflow: hidden;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+          width: 320px;
+          background: #111118;
+          border-right: 1px solid rgba(255,255,255,0.06);
+          display: flex;
+          flex-direction: column;
+          flex-shrink: 0;
+        }
+
+        .sidebar-header {
+          padding: 16px 18px;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          position: relative;
+        }
+
+        /* ── Main area ── */
+        .main-area {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          position: relative;
+        }
+
+        /* ── Back button — hidden on desktop ── */
+        .back-btn {
+          display: none !important;
+        }
+
+        /* ── Hide video on very small screens ── */
+        .hide-on-small { display: flex; }
+
+        /* ══════════════════════════════════════
+           MOBILE STYLES (max-width: 768px)
+        ══════════════════════════════════════ */
+        @media (max-width: 768px) {
+
+          /* Full width layout — show one panel at a time */
+          .sidebar {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: 10;
+            transition: transform 0.3s ease;
+          }
+
+          .main-area {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: 10;
+            transition: transform 0.3s ease;
+          }
+
+          /* Sidebar visible = slide in from left */
+          .sidebar-visible {
+            transform: translateX(0);
+          }
+
+          /* Sidebar hidden = slide out to left */
+          .sidebar-hidden {
+            transform: translateX(-100%);
+          }
+
+          /* Main visible = slide in from right */
+          .main-visible {
+            transform: translateX(0);
+          }
+
+          /* Main hidden = slide out to right */
+          .main-hidden {
+            transform: translateX(100%);
+          }
+
+          /* Show back button on mobile */
+          .back-btn {
+            display: flex !important;
+          }
+
+          /* Hide video button on small screens */
+          .hide-on-small {
+            display: none !important;
+          }
+
+          /* Hide "Send" text on mobile — icon only */
+          .send-label {
+            display: none;
+          }
+        }
+
+        /* ══════════════════════════════════════
+           DESKTOP STYLES (min-width: 769px)
+        ══════════════════════════════════════ */
+        @media (min-width: 769px) {
+          /* Always show both panels side by side */
+          .sidebar {
+            transform: translateX(0) !important;
+            position: relative;
+          }
+          .main-area {
+            transform: translateX(0) !important;
+            position: relative;
+          }
+        }
+
+        /* ── Animations ── */
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Scrollbar ── */
         ::-webkit-scrollbar { width: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+        /* ── Input placeholder ── */
         input::placeholder { color: #4b5563; }
       `}</style>
     </div>

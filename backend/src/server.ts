@@ -30,6 +30,7 @@ const httpServer = createServer(app);
 const allowedOrigins = [
   "http://localhost:3000",
   "https://chatapp-kappa-bay.vercel.app",
+  "http://10.92.248.15:3000",
   process.env.CLIENT_URL,
 ].filter(Boolean) as string[];
 
