@@ -241,6 +241,21 @@ export default function ChatPage() {
     } catch { return ""; }
   };
 
+  // Formats a last-message timestamp the way WhatsApp's chat list does:
+  // time if today, "Yesterday" if yesterday, otherwise a short date.
+  const formatMessageTime = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const isToday = date.toDateString() === now.toDateString();
+      if (isToday) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+      return date.toLocaleDateString([], { month: "short", day: "numeric" });
+    } catch { return ""; }
+  };
+
   const handleStartCall = (type: "audio" | "video") => {
     if (!selectedUser) return;
     setActiveCall(type);
@@ -350,37 +365,72 @@ export default function ChatPage() {
               <div style={{ textAlign: "center", padding: "40px 20px", color: "#4b5563" }}>
                 <p style={{ fontSize: "14px" }}>No users found</p>
               </div>
-            ) : filteredUsers.map((u) => (
-              <div
-                key={u._id}
-                onClick={() => setSelectedUser(u)}
-                style={{
-                  padding: "10px 11px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "11px",
-                  cursor: "pointer", marginBottom: "2px",
-                  background: selectedUser?._id === u._id ? "rgba(124,58,237,0.15)" : "transparent",
-                  border: selectedUser?._id === u._id ? "1px solid rgba(124,58,237,0.25)" : "1px solid transparent",
-                  transition: "all 0.15s",
-                }}
-              >
-                <div style={{ position: "relative", flexShrink: 0 }}>
-                  <img
-                    src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`}
-                    alt={u.username}
-                    style={{ width: "42px", height: "42px", borderRadius: "50%", border: "2px solid rgba(255,255,255,0.08)" }}
-                  />
-                  <div style={{ position: "absolute", bottom: "1px", right: "1px", width: "10px", height: "10px", borderRadius: "50%", background: isOnline(u._id) ? "#10b981" : "#374151", border: "2px solid #111118" }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: "#f1f1f3", fontSize: "14px", fontWeight: 600 }}>{u.username}</span>
-                    {isOnline(u._id) && <span style={{ color: "#10b981", fontSize: "11px" }}>Online</span>}
+            ) : filteredUsers.map((u) => {
+              const hasUnread = (u.unreadCount || 0) > 0;
+              const lastMsg = u.lastMessage;
+              const isMyLastMessage = lastMsg && lastMsg.senderId === user._id;
+              const previewText = lastMsg
+                ? (lastMsg.type === "image" ? "📸 Photo" : lastMsg.content)
+                : (u.bio || "Hey there!");
+
+              return (
+                <div
+                  key={u._id}
+                  onClick={() => setSelectedUser(u)}
+                  style={{
+                    padding: "10px 11px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "11px",
+                    cursor: "pointer", marginBottom: "2px",
+                    background: selectedUser?._id === u._id ? "rgba(124,58,237,0.15)" : "transparent",
+                    border: selectedUser?._id === u._id ? "1px solid rgba(124,58,237,0.25)" : "1px solid transparent",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div style={{ position: "relative", flexShrink: 0 }}>
+                    <img
+                      src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`}
+                      alt={u.username}
+                      style={{ width: "42px", height: "42px", borderRadius: "50%", border: "2px solid rgba(255,255,255,0.08)" }}
+                    />
+                    <div style={{ position: "absolute", bottom: "1px", right: "1px", width: "10px", height: "10px", borderRadius: "50%", background: isOnline(u._id) ? "#10b981" : "#374151", border: "2px solid #111118" }} />
                   </div>
-                  <span style={{ color: "#6b7280", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                    {u.bio || "Hey there!"}
-                  </span>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "#f1f1f3", fontSize: "14px", fontWeight: hasUnread ? 700 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {u.username}
+                      </span>
+                      {lastMsg && (
+                        <span style={{ color: hasUnread ? "#10b981" : "#6b7280", fontSize: "11px", flexShrink: 0, marginLeft: "8px" }}>
+                          {formatMessageTime(lastMsg.createdAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2px", gap: "8px" }}>
+                      <span style={{
+                        color: hasUnread ? "#e5e7eb" : "#6b7280",
+                        fontWeight: hasUnread ? 600 : 400,
+                        fontSize: "12px",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        flex: 1, minWidth: 0,
+                      }}>
+                        {isMyLastMessage && <span style={{ color: "#9ca3af" }}>You: </span>}
+                        {previewText}
+                      </span>
+                      {hasUnread && (
+                        <span style={{
+                          background: "#10b981", color: "#fff", fontSize: "11px", fontWeight: 700,
+                          borderRadius: "100px", minWidth: "20px", height: "20px",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          padding: "0 6px", flexShrink: 0,
+                        }}>
+                          {u.unreadCount! > 99 ? "99+" : u.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           }
         </div>
 

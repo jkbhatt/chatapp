@@ -4,7 +4,8 @@ import Message from "../models/Message";
 import User from "../models/User";
 
 // ============================================================
-// GET ALL USERS (for sidebar)
+// GET ALL USERS (for sidebar) — now includes last message +
+// unread count per conversation, like WhatsApp's chat list.
 // GET /api/messages/users
 // ============================================================
 export const getUsersForSidebar = async (req: Request, res: Response): Promise<void> => {
@@ -12,9 +13,49 @@ export const getUsersForSidebar = async (req: Request, res: Response): Promise<v
     const myId = (req as any).userId as string;
 
     const users = await User.find({ _id: { $ne: myId } })
-      .select("username email avatar bio isOnline lastSeen createdAt");
+      .select("username email avatar bio isOnline lastSeen createdAt")
+      .lean();
 
-    res.status(200).json({ status: "success", users });
+    const usersWithLastMessage = await Promise.all(
+      users.map(async (u: any) => {
+        const lastMessage = await Message.findOne({
+          $or: [
+            { sender: myId, receiver: u._id },
+            { sender: u._id, receiver: myId },
+          ],
+        })
+          .sort({ createdAt: -1 })
+          .select("content type sender createdAt");
+
+        const unreadCount = await Message.countDocuments({
+          sender: u._id,
+          receiver: myId,
+          seen: false,
+        });
+
+        return {
+          ...u,
+          lastMessage: lastMessage
+            ? {
+                content: lastMessage.content,
+                type: lastMessage.type,
+                senderId: lastMessage.sender.toString(),
+                createdAt: lastMessage.createdAt,
+              }
+            : null,
+          unreadCount,
+        };
+      })
+    );
+
+    // Most recent conversation first — empty conversations sink to the bottom
+    usersWithLastMessage.sort((a, b) => {
+      const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    res.status(200).json({ status: "success", users: usersWithLastMessage });
   } catch (error) {
     res.status(500).json({ status: "error", message: "Failed to get users" });
   }
@@ -22,6 +63,8 @@ export const getUsersForSidebar = async (req: Request, res: Response): Promise<v
 
 // ============================================================
 // GET MESSAGES between me and another user
+// Also marks their messages to me as "seen" — clears the
+// unread badge for this chat going forward.
 // GET /api/messages/:userId
 // ============================================================
 export const getMessages = async (req: Request, res: Response): Promise<void> => {
@@ -38,6 +81,12 @@ export const getMessages = async (req: Request, res: Response): Promise<void> =>
       .populate("sender", "username avatar")
       .populate("receiver", "username avatar")
       .sort({ createdAt: 1 });
+
+    // Mark their messages to me as seen — clears the unread badge
+    await Message.updateMany(
+      { sender: otherUserId, receiver: myId, seen: false },
+      { $set: { seen: true } }
+    );
 
     res.status(200).json({ status: "success", messages });
   } catch (error) {
@@ -86,7 +135,6 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
 // ============================================================
 // DELETE MESSAGE
 // DELETE /api/messages/:messageId
-// Returns the receiverId so frontend can emit socket event
 // ============================================================
 export const deleteMessage = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -105,13 +153,11 @@ export const deleteMessage = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Only sender can delete their own message
     if (message.sender.toString() !== myId) {
       res.status(403).json({ status: "error", message: "You can only delete your own messages" });
       return;
     }
 
-    // Capture receiver before deleting, so frontend knows who to notify
     if (!message.receiver) {
       res.status(400).json({ status: "error", message: "Message has no receiver" });
       return;
@@ -124,7 +170,7 @@ export const deleteMessage = async (req: Request, res: Response): Promise<void> 
       status: "success",
       message: "Message deleted successfully",
       messageId,
-      receiverId, // <-- needed by frontend to emit socket event
+      receiverId,
     });
   } catch (error) {
     console.error("deleteMessage error:", error);

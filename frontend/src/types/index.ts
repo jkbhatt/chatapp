@@ -10,6 +10,13 @@ export interface User {
   isOnline: boolean;
   lastSeen?: string;
   createdAt: string;
+  lastMessage?: {
+    content: string;
+    type: string;
+    senderId: string;
+    createdAt: string;
+  } | null;
+  unreadCount?: number;
 }
 
 // ============================================================
